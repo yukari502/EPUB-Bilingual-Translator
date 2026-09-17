@@ -78,8 +78,8 @@ async def translate_html(
     chunk_size = max(1, settings.paragraphs_per_request)
     chunks = [pending_texts[i : i + chunk_size] for i in range(0, len(pending_texts), chunk_size)]
     max_workers = max(1, settings.max_concurrency)
-    if settings.provider == "google-web":
-        max_workers = min(max_workers, 3)
+    if settings.provider == "ollama":
+        max_workers = 1
 
     queue: asyncio.Queue[list[str]] = asyncio.Queue()
     for chunk in chunks:
@@ -112,6 +112,7 @@ async def translate_html(
             except Exception as e:
                 print(f"Translation batch error: {e}")
             finally:
+                cache.save()
                 queue.task_done()
 
     workers = [asyncio.create_task(worker()) for _ in range(max_workers)]

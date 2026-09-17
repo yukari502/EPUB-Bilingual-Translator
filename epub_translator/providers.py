@@ -10,7 +10,7 @@ import httpx
 from .settings import TranslationSettings
 
 
-SEPARATOR = "\n\n%%\n\n"
+import json
 
 LANGUAGE_CODES = {
     "Chinese": "zh-CN",
@@ -33,12 +33,12 @@ def system_prompt(target_language: str, glossary: str = "") -> str:
     prompt = f"""You are a professional {target_language} native translator.
 
 Translation rules:
-1. Output ONLY the translated content. MUST strictly use the exact {target_language} script and dialect. Do not mix scripts (e.g., if Traditional Chinese is requested, absolutely no Simplified Chinese characters are allowed; if Simplified Chinese is requested, use only 简体中文).
+1. Output ONLY the translated content. MUST strictly use the exact {target_language} script and dialect.
 2. Keep exactly the same number of paragraphs as the input.
 3. Preserve the original HTML structure exactly: do not add, remove, rename, reorder, or simplify tags and attributes.
 4. Translate only human-readable text nodes. Keep code, URLs, placeholders, entities, punctuation-only text, and proper nouns unchanged when appropriate.
 5. Keep inline formatting tags around the corresponding translated words.
-6. For multi-paragraph input, separate translated paragraphs with %%."""
+6. The user will provide a JSON array of strings. You MUST return a JSON array of translated strings of the exact same length. Return ONLY valid JSON."""
     if glossary.strip():
         prompt += f"\n\nGlossary and custom instructions:\n{glossary.strip()}"
     return prompt
@@ -60,34 +60,17 @@ class TranslationProvider(ABC):
                     response = await client.request(method, url, **kwargs)
                     if response.is_success:
                         return response
+                    if response.status_code == 429:
+                        retry_after = response.headers.get("Retry-After")
+                        if retry_after and retry_after.isdigit():
+                            await asyncio.sleep(int(retry_after))
+                            continue
                     last_error = RuntimeError(f"HTTP {response.status_code}: {response.text[:500]}")
                 except httpx.RequestError as exc:
                     last_error = exc
                 if attempt < self.settings.retries:
                     await asyncio.sleep(2 ** (attempt - 1))
         raise RuntimeError(str(last_error or "request failed"))
-
-
-class GoogleWebProvider(TranslationProvider):
-    async def translate_batch(self, texts: list[str]) -> list[str]:
-        target = LANGUAGE_CODES.get(self.settings.target_language, "zh-CN")
-        results: list[str] = []
-        for index, text in enumerate(texts):
-            response = await self._request_with_retries(
-                "POST",
-                "https://translate.googleapis.com/translate_a/single",
-                params={"client": "gtx", "sl": "auto", "tl": target, "dt": "t"},
-                data={"q": text},
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-            )
-            payload = response.json()
-            if payload and payload[0]:
-                results.append("".join(part[0] for part in payload[0] if part and part[0]))
-            else:
-                results.append("[Translation Failed]")
-            if index < len(texts) - 1:
-                await asyncio.sleep(0.6)
-        return results
 
 
 class OpenAICompatibleProvider(TranslationProvider):
@@ -117,9 +100,10 @@ class OpenAICompatibleProvider(TranslationProvider):
             json={
                 "model": model,
                 "temperature": 0,
+                "response_format": {"type": "json_object"} if self.settings.provider in ("openai", "deepseek") else None,
                 "messages": [
                     {"role": "system", "content": system_prompt(self.settings.target_language, self.settings.glossary)},
-                    {"role": "user", "content": SEPARATOR.join(texts)},
+                    {"role": "user", "content": json.dumps(texts, ensure_ascii=False)},
                 ],
             },
         )
@@ -128,7 +112,7 @@ class OpenAICompatibleProvider(TranslationProvider):
             content = data["choices"][0]["message"]["content"].strip()
         except (KeyError, IndexError):
             return texts
-        return normalize_parts(content, texts)
+        return parse_json_parts(content, texts)
 
     def _chat_completions_url(self) -> str:
         url = (self.settings.api_url or self.DEFAULT_URLS.get(self.settings.provider, "")).strip()
@@ -167,7 +151,7 @@ class GeminiProvider(TranslationProvider):
                 "system_instruction": {
                     "parts": [{"text": system_prompt(self.settings.target_language, self.settings.glossary)}]
                 },
-                "contents": [{"parts": [{"text": SEPARATOR.join(texts)}]}],
+                "contents": [{"parts": [{"text": json.dumps(texts, ensure_ascii=False)}]}],
                 "generationConfig": {"temperature": 0},
             },
         )
@@ -176,20 +160,32 @@ class GeminiProvider(TranslationProvider):
             content = data["candidates"][0]["content"]["parts"][0]["text"].strip()
         except (KeyError, IndexError):
             return texts
-        return normalize_parts(content, texts)
+        return parse_json_parts(content, texts)
 
 
-def normalize_parts(content: str, texts: list[str]) -> list[str]:
+def parse_json_parts(content: str, texts: list[str]) -> list[str]:
     expected = len(texts)
-    parts = [part.strip() for part in content.split("%%")]
+    try:
+        # Some models wrap JSON in markdown blocks
+        if content.startswith("```json"):
+            content = content[7:]
+        if content.startswith("```"):
+            content = content[3:]
+        if content.endswith("```"):
+            content = content[:-3]
+        parts = json.loads(content.strip())
+        if not isinstance(parts, list):
+            parts = [str(parts)]
+    except json.JSONDecodeError:
+        parts = [content.strip()]
+        
+    parts = [str(p).strip() for p in parts]
     if len(parts) < expected:
         parts.extend(texts[len(parts):])
     return parts[:expected]
 
 
 def build_provider(settings: TranslationSettings) -> TranslationProvider:
-    if settings.provider == "google-web":
-        return GoogleWebProvider(settings)
     if settings.provider == "gemini":
         return GeminiProvider(settings)
     return OpenAICompatibleProvider(settings)

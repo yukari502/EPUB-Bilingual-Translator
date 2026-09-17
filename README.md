@@ -19,17 +19,61 @@ A lightweight, modern Python tool to translate EPUB files using LLMs (OpenAI, Ge
 1. Double click `start.bat`.
 2. It will automatically download dependencies (if needed) and open the translation web UI in your browser.
 
+## CLI Mode (For Servers & Local Models)
+If you are deploying on a headless server or prefer pure terminal operations (e.g., translating using a locally deployed model like Ollama or vLLM), you can use the built-in Command Line Interface (CLI).
+
+1. **Install dependencies:**
+   ```bash
+   pip install -e .
+   ```
+
+2. **Run the translation command:**
+   Example for translating using a local **Ollama** model:
+   ```bash
+   epub-translator input.epub output.epub \
+       --provider ollama \
+       --model llama3 \
+       --api-url http://localhost:11434/v1/chat/completions \
+       --target "Simplified Chinese" \
+       --mode bilingual
+   ```
+
+**Common CLI Arguments:**
+- `input`: Source EPUB file path (required).
+- `output`: Output EPUB file path (required).
+- `--provider`: Options include `openai`, `gemini`, `deepseek`, `ollama`, `custom`.
+- `--model`: Model name (e.g., `llama3`, `gpt-4o-mini`).
+- `--api-url`: Your local or custom API URL.
+- `--api-key`: API key if required by your provider.
+- `--target`: Target language (default: `Traditional Chinese`).
+- `--mode`: `bilingual` or `translate-only` (default: `bilingual`).
+- `--concurrency`: Number of concurrent API requests (default: `4`).
+- `--paragraphs`: Number of paragraphs per request (default: `4`).
+- `--cache`: Custom path for the cache file (default: `.translation_cache.json`).
+
 ## Supported Providers
-- **Google Web** (Free, no API key required)
 - **OpenAI Compatible** (ChatGPT, Claude, etc)
 - **Gemini** (Google API)
 - **DeepSeek**
 - **Ollama** (Local models)
 - **Custom API**
 
-## Cache Management
-- Translations are cached locally to `.translation_cache.json` so you never pay twice for the same sentence.
+## Cache Management & Auto-Resume (断点续传)
+- Translations are cached locally to `.translation_cache.json` (or a custom path via `--cache`) so you never pay twice for the same sentence.
+- **Graceful Auto-Resume:** The cache is saved dynamically as translation progresses. If the process is interrupted (e.g. server crash, `Ctrl+C`), simply rerun the exact same command. The tool will instantly resume translation from where it left off!
 - You can Export/Import caches to share translation progress across devices.
+
+## Environment Variables (.env)
+You can set defaults by creating a `.env` file in the directory to avoid exposing API keys in your terminal history:
+```env
+EPUB_PROVIDER=ollama
+EPUB_MODEL=qwen2.5:7b
+EPUB_API_URL=http://localhost:11434/v1/chat/completions
+EPUB_API_KEY=your_key_here
+EPUB_CACHE_PATH=/path/to/custom_cache.json
+EPUB_TARGET=Simplified Chinese
+EPUB_CONCURRENCY=1
+```
 
 ## FAQ
 

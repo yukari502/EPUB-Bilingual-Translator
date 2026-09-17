@@ -5,14 +5,14 @@ from pathlib import Path
 from typing import Literal
 
 
-ProviderName = Literal["google-web", "openai", "gemini", "custom", "deepseek", "ollama"]
+ProviderName = Literal["openai", "gemini", "custom", "deepseek", "ollama"]
 TranslationMode = Literal["bilingual", "translate-only"]
 
 
 @dataclass(slots=True)
 class TranslationSettings:
     mode: TranslationMode = "bilingual"
-    provider: ProviderName = "google-web"
+    provider: ProviderName = "openai"
     api_key: str = ""
     api_url: str = ""
     model: str = ""

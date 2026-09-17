@@ -1,7 +1,14 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
+import os
 from pathlib import Path
+
+from dotenv import load_dotenv
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TaskProgressColumn, TimeRemainingColumn
+
+load_dotenv()
 
 from .cache import TranslationCache
 from .epub import EpubBook
@@ -13,16 +20,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Translate EPUB books.")
     parser.add_argument("input", type=Path, help="Input .epub file")
     parser.add_argument("output", type=Path, help="Output .epub file")
-    parser.add_argument("--provider", default="google-web", choices=["google-web", "openai", "gemini", "custom", "deepseek", "ollama"])
-    parser.add_argument("--target", default="Traditional Chinese", help="Target language name")
-    parser.add_argument("--mode", default="bilingual", choices=["translate-only", "bilingual"])
-    parser.add_argument("--api-key", default="")
-    parser.add_argument("--api-url", default="")
-    parser.add_argument("--model", default="")
+    parser.add_argument("--provider", default=os.getenv("EPUB_PROVIDER", "openai"), choices=["openai", "gemini", "custom", "deepseek", "ollama"])
+    parser.add_argument("--target", default=os.getenv("EPUB_TARGET", "Traditional Chinese"), help="Target language name")
+    parser.add_argument("--mode", default=os.getenv("EPUB_MODE", "bilingual"), choices=["translate-only", "bilingual"])
+    parser.add_argument("--api-key", default=os.getenv("EPUB_API_KEY", ""))
+    parser.add_argument("--api-url", default=os.getenv("EPUB_API_URL", ""))
+    parser.add_argument("--model", default=os.getenv("EPUB_MODEL", ""))
     parser.add_argument("--glossary", default="")
-    parser.add_argument("--concurrency", type=int, default=4)
-    parser.add_argument("--paragraphs", type=int, default=4)
-    parser.add_argument("--cache", type=Path, default=Path(".translation_cache.json"))
+    parser.add_argument("--concurrency", type=int, default=int(os.getenv("EPUB_CONCURRENCY", "4")))
+    parser.add_argument("--paragraphs", type=int, default=int(os.getenv("EPUB_PARAGRAPHS", "4")))
+    parser.add_argument("--cache", type=Path, default=Path(os.getenv("EPUB_CACHE_PATH", ".translation_cache.json")))
     parser.add_argument("--chapter", type=int, action="append", help="Translate only selected chapter number. Repeatable.")
     return parser
 
@@ -49,11 +56,22 @@ def main(argv: list[str] | None = None) -> int:
     for position, chapter in enumerate(chapters, start=1):
         print(f"[{position}/{len(chapters)}] Translating {chapter.title}")
 
-        def on_progress(done: int, total: int, source: str) -> None:
-            print(f"  {done}/{total} paragraphs ({source})", end="\r")
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TaskProgressColumn(),
+            TimeRemainingColumn(),
+        ) as progress:
+            task = progress.add_task("[cyan]Translating...", total=100)
+            
+            def on_progress(done: int, total: int, source: str, html: str) -> None:
+                progress.update(task, total=total, completed=done)
 
-        translated = translate_html(book.read_text(chapter.path), settings, cache=cache, progress=on_progress)
-        print()
+            translated = asyncio.run(
+                translate_html(book.read_text(chapter.path), settings, cache=cache, progress=on_progress)
+            )
+            
         book.write_text(chapter.path, translated)
 
     book.export(args.output)
