@@ -58,7 +58,7 @@ If you are deploying on a headless server or prefer pure terminal operations (e.
 - **Ollama** (Local models)
 - **Custom API**
 
-## Cache Management & Auto-Resume (断点续传)
+## Cache Management & Auto-Resume
 - Translations are cached locally to `.translation_cache.json` (or a custom path via `--cache`) so you never pay twice for the same sentence.
 - **Graceful Auto-Resume:** The cache is saved dynamically as translation progresses. If the process is interrupted (e.g. server crash, `Ctrl+C`), simply rerun the exact same command. The tool will instantly resume translation from where it left off!
 - You can Export/Import caches to share translation progress across devices.
