@@ -26,3 +26,6 @@ Batch
 python-portable/
 python-portable.zip
 get-pip.py
+
+# Colab Notebooks
+*.ipynb
