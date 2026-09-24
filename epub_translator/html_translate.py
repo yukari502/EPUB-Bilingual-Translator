@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from typing import Callable, Any
 
 from bs4 import BeautifulSoup, Tag
+
+logger = logging.getLogger("translator")
 
 from .cache import TranslationCache
 from .providers import build_provider
@@ -91,10 +94,13 @@ async def translate_html(
 
     async def worker() -> None:
         nonlocal completed_tags, last_update_time
-        while not queue.empty():
+        while True:
             if cancel_event and cancel_event.is_set():
                 break
-            chunk = await queue.get()
+            try:
+                chunk = queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
             try:
                 translations = await provider.translate_batch(chunk)
                 updated_in_chunk = False
@@ -120,7 +126,7 @@ async def translate_html(
                     if asyncio.iscoroutine(res):
                         await res
             except Exception as e:
-                print(f"Translation batch error: {e}")
+                logger.error(f"Translation batch error: {e}")
             finally:
                 cache.save()
                 queue.task_done()

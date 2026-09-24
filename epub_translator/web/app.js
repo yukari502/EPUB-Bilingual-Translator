@@ -7,6 +7,9 @@ const elements = {
   previewContent: document.getElementById('preview-content'),
   btnTranslateAll: document.getElementById('btn-translate-all'),
   btnTranslateChapter: document.getElementById('btn-translate-chapter'),
+  btnToggleLogs: document.getElementById('btn-toggle-logs'),
+  logConsole: document.getElementById('log-console'),
+  logOutput: document.getElementById('log-output'),
   btnStop: document.getElementById('btn-stop'),
   btnExport: document.getElementById('btn-export'),
   btnSaveSettings: document.getElementById('btn-save-settings'),
@@ -55,6 +58,9 @@ function setupEventListeners() {
     } else {
       alert("Please select a chapter first.");
     }
+  });
+  elements.btnToggleLogs.addEventListener('click', () => {
+    elements.logConsole.classList.toggle('hidden');
   });
   elements.btnStop.addEventListener('click', stopTranslation);
   elements.btnExport.addEventListener('click', exportEpub);
@@ -443,6 +449,12 @@ function handleWsMessage(msg, mode) {
   } else if (msg.type === 'error') {
     alert('Translation error: ' + msg.message);
     ws.close();
+  } else if (msg.type === 'log') {
+    const logLine = document.createElement('div');
+    logLine.style.marginBottom = '2px';
+    logLine.innerText = msg.message;
+    elements.logOutput.appendChild(logLine);
+    elements.logConsole.scrollTop = elements.logConsole.scrollHeight;
   }
 }
 

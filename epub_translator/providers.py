@@ -11,6 +11,9 @@ from .settings import TranslationSettings
 
 
 import json
+import logging
+
+logger = logging.getLogger("translator")
 
 LANGUAGE_CODES = {
     "Chinese": "zh-CN",
@@ -66,15 +69,17 @@ class TranslationProvider(ABC):
                     if response.status_code == 429:
                         retry_after = response.headers.get("Retry-After")
                         if retry_after and retry_after.isdigit():
+                            logger.warning(f"Rate limited. Waiting {retry_after} seconds.")
                             await asyncio.sleep(int(retry_after))
                             continue
                     last_error = RuntimeError(f"HTTP {response.status_code}: {response.text[:500]}")
+                    logger.error(f"Provider HTTP Error: {last_error}")
                 except Exception as exc:
                     last_error = exc
                 if attempt < self.settings.retries:
                     await asyncio.sleep(2 ** (attempt - 1))
         
-        print(f"Batch translation failed after {self.settings.retries} attempts: {last_error}")
+        logger.error(f"Batch translation failed after {self.settings.retries} attempts: {last_error}")
         return ["[Translation Failed]"] * len(texts)
 
 

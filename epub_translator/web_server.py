@@ -5,6 +5,7 @@ import concurrent.futures
 import hashlib
 import io
 import json
+import logging
 import os
 import sys
 import webbrowser
@@ -231,6 +232,34 @@ async def websocket_translate(websocket: WebSocket, mode: str = "all", chapter_i
         
         loop = asyncio.get_running_loop()
         
+        # Setup logger
+        log_queue: asyncio.Queue[str] = asyncio.Queue()
+        
+        class WebSocketLogHandler(logging.Handler):
+            def emit(self, record):
+                try:
+                    msg = self.format(record)
+                    log_queue.put_nowait(msg)
+                except Exception:
+                    pass
+
+        log_handler = WebSocketLogHandler()
+        log_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s', '%H:%M:%S'))
+        
+        logger = logging.getLogger("translator")
+        logger.setLevel(logging.INFO)
+        logger.addHandler(log_handler)
+        
+        async def log_sender():
+            try:
+                while True:
+                    msg = await log_queue.get()
+                    await websocket.send_json({"type": "log", "message": msg})
+            except Exception:
+                pass
+                
+        log_task = asyncio.create_task(log_sender())
+        
         def analyze_chapter(index: int, chapter_path: str) -> tuple[int, int]:
             if mode == "chapter" and index != chapter_idx:
                 return index, 0
@@ -322,6 +351,10 @@ async def websocket_translate(websocket: WebSocket, mode: str = "all", chapter_i
         traceback.print_exc()
         await websocket.send_json({"type": "error", "message": str(e)})
     finally:
+        if 'logger' in locals() and 'log_handler' in locals():
+            logger.removeHandler(log_handler)
+        if 'log_task' in locals():
+            log_task.cancel()
         listener_task.cancel()
         if not websocket.client_state.name == "DISCONNECTED":
             try:

@@ -129,6 +129,7 @@ Alice = 爱丽丝"></textarea>
              <div style="display: flex; gap: 10px;">
                <button id="btn-translate-all" class="btn btn-primary" style="width: auto; padding: 6px 16px;">▶ Translate All Chapters</button>
                <button id="btn-translate-chapter" class="btn btn-primary" style="width: auto; padding: 6px 16px; background: #3b82f6;">▶ Translate Current Chapter</button>
+               <button id="btn-toggle-logs" class="btn btn-secondary" style="width: auto; padding: 6px 16px;">Toggle Logs</button>
              </div>
              <span id="progress-stats" style="font-size: 0.8rem; color: var(--text-muted); align-self: flex-end;"></span>
           </div>
@@ -142,9 +143,13 @@ Alice = 爱丽丝"></textarea>
           </div>
           
           <!-- Preview Area -->
-          <div class="preview-area">
-            <div id="preview-content" class="preview-content">
+          <div class="preview-area" style="display: flex; flex-direction: column;">
+            <div id="preview-content" class="preview-content" style="flex: 1; overflow: hidden;">
               Select a chapter to preview...
+            </div>
+            <!-- Log Console -->
+            <div id="log-console" class="log-console hidden" style="height: 150px; background: #1e1e1e; color: #d4d4d4; padding: 10px; overflow-y: auto; font-family: monospace; font-size: 0.85rem; border-top: 1px solid #333;">
+              <div id="log-output"></div>
             </div>
           </div>
         </div>
