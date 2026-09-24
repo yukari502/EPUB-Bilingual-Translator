@@ -18,8 +18,8 @@ from .settings import TranslationSettings
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Translate EPUB books.")
-    parser.add_argument("input", type=Path, help="Input .epub file")
-    parser.add_argument("output", type=Path, help="Output .epub file")
+    parser.add_argument("input", type=Path, nargs="+", help="Input .epub file(s) or directory containing .epub files")
+    parser.add_argument("output", type=Path, help="Output .epub file or output directory")
     parser.add_argument("--provider", default=os.getenv("EPUB_PROVIDER", "openai"), choices=["openai", "gemini", "custom", "deepseek", "ollama"])
     parser.add_argument("--target", default=os.getenv("EPUB_TARGET", "Traditional Chinese"), help="Target language name")
     parser.add_argument("--mode", default=os.getenv("EPUB_MODE", "bilingual"), choices=["translate-only", "bilingual"])
@@ -48,34 +48,66 @@ def main(argv: list[str] | None = None) -> int:
         glossary=args.glossary,
         cache_path=args.cache,
     )
-    book = EpubBook.load(args.input)
-    cache = TranslationCache(settings.cache_path)
-    selected = set(args.chapter or [])
-    chapters = [chapter for chapter in book.chapters if not selected or chapter.index in selected]
+    input_paths = []
+    for path in args.input:
+        if path.is_dir():
+            input_paths.extend(list(path.glob("**/*.epub")))
+        else:
+            input_paths.append(path)
 
-    for position, chapter in enumerate(chapters, start=1):
-        print(f"[{position}/{len(chapters)}] Translating {chapter.title}")
+    if not input_paths:
+        print("No input EPUB files found.")
+        return 1
 
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            BarColumn(),
-            TaskProgressColumn(),
-            TimeRemainingColumn(),
-        ) as progress:
-            task = progress.add_task("[cyan]Translating...", total=100)
+    for book_idx, input_path in enumerate(input_paths, start=1):
+        if len(input_paths) > 1:
+            print(f"\n[{book_idx}/{len(input_paths)}] Processing Book: {input_path.name}")
+            if args.output.suffix == ".epub":
+                # If output was specified as a file but we have multiple inputs, treat output as a dir
+                output_dir = args.output.parent / args.output.stem
+            else:
+                output_dir = args.output
             
-            def on_progress(done: int, total: int, source: str, html: str) -> None:
-                progress.update(task, total=total, completed=done)
+            output_dir.mkdir(parents=True, exist_ok=True)
+            output_path = output_dir / f"{input_path.stem}_{args.target.replace(' ', '')}_{args.mode}.epub"
+        else:
+            output_path = args.output
+            if output_path.is_dir() or not output_path.name.endswith(".epub"):
+                output_path.mkdir(parents=True, exist_ok=True)
+                output_path = output_path / f"{input_path.stem}_{args.target.replace(' ', '')}_{args.mode}.epub"
 
-            translated = asyncio.run(
-                translate_html(book.read_text(chapter.path), settings, cache=cache, progress=on_progress)
-            )
-            
-        book.write_text(chapter.path, translated)
+        try:
+            book = EpubBook.load(input_path)
+            cache = TranslationCache(settings.cache_path)
+            selected = set(args.chapter or [])
+            chapters = [chapter for chapter in book.chapters if not selected or chapter.index in selected]
 
-    book.export(args.output)
-    print(f"Saved: {args.output}")
+            for position, chapter in enumerate(chapters, start=1):
+                print(f"  [{position}/{len(chapters)}] Translating {chapter.title}")
+
+                with Progress(
+                    SpinnerColumn(),
+                    TextColumn("[progress.description]{task.description}"),
+                    BarColumn(),
+                    TaskProgressColumn(),
+                    TimeRemainingColumn(),
+                ) as progress:
+                    task = progress.add_task("[cyan]Translating...", total=100)
+                    
+                    def on_progress(done: int, total: int, source: str, html: str) -> None:
+                        progress.update(task, total=total, completed=done)
+
+                    translated = asyncio.run(
+                        translate_html(book.read_text(chapter.path), settings, cache=cache, progress=on_progress)
+                    )
+                    
+                book.write_text(chapter.path, translated)
+
+            book.export(output_path)
+            print(f"Saved: {output_path}")
+        except Exception as e:
+            print(f"Error processing {input_path}: {e}")
+
     return 0
 
 

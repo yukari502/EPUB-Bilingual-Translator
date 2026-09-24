@@ -38,9 +38,16 @@ If you are deploying on a headless server or prefer pure terminal operations (e.
        --mode bilingual
    ```
 
+   Example for batch translating multiple books (or a directory of EPUBs):
+   ```bash
+   epub-translator ./my_books/ ./translated_books/ \
+       --provider openai \
+       --target "Simplified Chinese"
+   ```
+
 **Common CLI Arguments:**
-- `input`: Source EPUB file path (required).
-- `output`: Output EPUB file path (required).
+- `input`: Source EPUB file path(s) or a directory containing EPUB files (required).
+- `output`: Output EPUB file path or output directory (required).
 - `--provider`: Options include `openai`, `gemini`, `deepseek`, `ollama`, `custom`.
 - `--model`: Model name (e.g., `llama3`, `gpt-4o-mini`).
 - `--api-url`: Your local or custom API URL.

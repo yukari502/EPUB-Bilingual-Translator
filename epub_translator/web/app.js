@@ -140,7 +140,7 @@ async function loadChapter(index) {
   renderChapterList(); // Update active class
   
   try {
-    const res = await fetch(`/api/chapter/${index}`);
+    const res = await fetch(`/api/chapter/${index}?t=${Date.now()}`);
     const data = await res.json();
     renderPreview(data.html, data.path);
   } catch (err) {

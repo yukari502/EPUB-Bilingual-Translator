@@ -57,7 +57,7 @@ class TranslationProvider(ABC):
 
     async def _execute_with_retries(self, req_func, texts: list[str], extract_func) -> list[str]:
         last_error: Exception | None = None
-        async with httpx.AsyncClient(timeout=self.settings.timeout) as client:
+        async with httpx.AsyncClient(timeout=self.settings.timeout, verify=False) as client:
             for attempt in range(1, self.settings.retries + 1):
                 try:
                     response = await req_func(client)
