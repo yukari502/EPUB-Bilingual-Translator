@@ -22,7 +22,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='EPUB-Translator-v1.1.2',
+    name='EPUB-Translator-v1.1.3',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

@@ -126,7 +126,8 @@ async def translate_html(
                     if asyncio.iscoroutine(res):
                         await res
             except Exception as e:
-                logger.error(f"Translation batch error: {e}")
+                import traceback
+                logger.error(f"Translation batch error: {e}\n{traceback.format_exc()}")
             finally:
                 cache.save()
                 queue.task_done()
@@ -199,8 +200,9 @@ def apply_translation(soup: BeautifulSoup, tag: Tag, translated: str, settings: 
     trans_tag = soup.new_tag(tag.name)
     trans_tag["class"] = ["translation-block", "translated"]
     trans_tag["style"] = "margin-top:4px;margin-bottom:4px;"
-    # Parse translated string using 'xml' mode to preserve XHTML structures
-    trans_tag.append(BeautifulSoup(translated, "xml"))
+    # Parse translated string using 'html.parser' mode.
+    # 'xml' mode expects a single root element and drops raw text or multiple roots, which causes IndexError when appending.
+    trans_tag.append(BeautifulSoup(translated, "html.parser"))
     tag["data-epub-translator-original"] = "1"
     append_style(tag, "opacity:0.6;margin-top:0;margin-bottom:12px;")
     tag.insert_before(trans_tag)
