@@ -17,6 +17,7 @@ release/
 config.json
 *.tmp
 venv/
+.venv
 
 
 
