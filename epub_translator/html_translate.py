@@ -81,18 +81,25 @@ async def translate_html(
     if settings.provider == "ollama":
         max_workers = 1
 
-    queue: asyncio.Queue[list[str]] = asyncio.Queue()
-    for chunk in chunks:
-        queue.put_nowait(chunk)
+    chunk_tasks = []
+    for i, chunk in enumerate(chunks):
+        context = []
+        if i > 0:
+            context = chunks[i-1][-5:]
+        chunk_tasks.append((chunk, context))
+
+    queue: asyncio.Queue[tuple[list[str], list[str]]] = asyncio.Queue()
+    for task in chunk_tasks:
+        queue.put_nowait(task)
 
     async def worker() -> None:
         nonlocal completed_tags
         while not queue.empty():
             if cancel_event and cancel_event.is_set():
                 break
-            chunk = await queue.get()
+            chunk, context = await queue.get()
             try:
-                translations = await provider.translate_batch(chunk)
+                translations = await provider.translate_batch(chunk, previous_texts=context)
                 updated_in_chunk = False
                 for text, translated in zip(chunk, translations):
                     if cancel_event and cancel_event.is_set():
@@ -172,7 +179,8 @@ def apply_translation(soup: BeautifulSoup, tag: Tag, translated: str, settings: 
     trans_tag = soup.new_tag(tag.name)
     trans_tag["class"] = ["translation-block", "translated"]
     trans_tag["style"] = "margin-top:4px;margin-bottom:4px;"
-    trans_tag.append(BeautifulSoup(translated, "html.parser"))
+    # Parse translated string using 'xml' mode to preserve XHTML structures
+    trans_tag.append(BeautifulSoup(translated, "xml"))
     tag["data-epub-translator-original"] = "1"
     append_style(tag, "opacity:0.6;margin-top:0;margin-bottom:12px;")
     tag.insert_before(trans_tag)

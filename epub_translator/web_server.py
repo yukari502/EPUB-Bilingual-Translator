@@ -96,6 +96,7 @@ class SettingsPayload(BaseModel):
     api_key: str
     concurrency: int
     paragraphs: int
+    glossary: str = ""
 
 @app.get("/api/settings")
 async def get_settings() -> JSONResponse:
@@ -109,6 +110,7 @@ async def get_settings() -> JSONResponse:
         "api_key": s.api_key,
         "concurrency": s.max_concurrency,
         "paragraphs": s.paragraphs_per_request,
+        "glossary": s.glossary,
     })
 
 @app.post("/api/settings")
@@ -121,6 +123,7 @@ async def update_settings(payload: SettingsPayload) -> JSONResponse:
     state.settings.api_key = payload.api_key
     state.settings.max_concurrency = payload.concurrency
     state.settings.paragraphs_per_request = payload.paragraphs
+    state.settings.glossary = payload.glossary
     save_config(state.settings)
     return JSONResponse({"status": "ok"})
 
@@ -188,7 +191,7 @@ async def export_epub() -> FileResponse:
     if state.settings.mode != "bilingual":
         for index, chapter in enumerate(state.book.chapters):
             html = state.book.read_text(chapter.path)
-            soup = BeautifulSoup(html, "html.parser")
+            soup = BeautifulSoup(html, "xml")
             for tag in soup.find_all(attrs={"data-epub-translator-original": "1"}):
                 tag.decompose()
             state.book.write_text(chapter.path, str(soup))
@@ -198,7 +201,7 @@ async def export_epub() -> FileResponse:
 
 
 @app.websocket("/ws/translate")
-async def websocket_translate(websocket: WebSocket, mode: str = "all"):
+async def websocket_translate(websocket: WebSocket, mode: str = "all", chapter_idx: int = -1):
     await websocket.accept()
     if not state.book:
         await websocket.send_json({"type": "error", "message": "No book loaded"})
@@ -229,6 +232,9 @@ async def websocket_translate(websocket: WebSocket, mode: str = "all"):
         loop = asyncio.get_running_loop()
         
         def analyze_chapter(index: int, chapter_path: str) -> tuple[int, int]:
+            if mode == "chapter" and index != chapter_idx:
+                return index, 0
+                
             html_text = state.book.read_text(chapter_path)
             html_hash = hashlib.md5(html_text.encode("utf-8")).hexdigest()
             if html_hash in state.analysis_cache:
@@ -258,6 +264,9 @@ async def websocket_translate(websocket: WebSocket, mode: str = "all"):
         for index, chapter in enumerate(state.book.chapters):
             if cancel_event.is_set():
                 break
+                
+            if mode == "chapter" and index != chapter_idx:
+                continue
             
             html = state.book.read_text(chapter.path)
             if chapter_targets[index] == 0:

@@ -29,7 +29,7 @@ LANGUAGE_CODES = {
 }
 
 
-def system_prompt(target_language: str, glossary: str = "") -> str:
+def system_prompt(target_language: str, glossary: str = "", context: list[str] = None) -> str:
     prompt = f"""You are a professional {target_language} native translator.
 
 Translation rules:
@@ -41,6 +41,8 @@ Translation rules:
 6. The user will provide a JSON array of strings. You MUST return a JSON array of translated strings of the exact same length. Return ONLY valid JSON."""
     if glossary.strip():
         prompt += f"\n\nGlossary and custom instructions:\n{glossary.strip()}"
+    if context and any(context):
+        prompt += f"\n\nContext from previous paragraphs (for reference ONLY, do NOT translate these):\n{json.dumps(context, ensure_ascii=False)}"
     return prompt
 
 
@@ -49,28 +51,33 @@ class TranslationProvider(ABC):
         self.settings = settings
 
     @abstractmethod
-    async def translate_batch(self, texts: list[str]) -> list[str]:
+    async def translate_batch(self, texts: list[str], previous_texts: list[str] = None) -> list[str]:
         raise NotImplementedError
 
-    async def _request_with_retries(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
+    async def _execute_with_retries(self, req_func, texts: list[str], extract_func) -> list[str]:
         last_error: Exception | None = None
         async with httpx.AsyncClient(timeout=self.settings.timeout) as client:
             for attempt in range(1, self.settings.retries + 1):
                 try:
-                    response = await client.request(method, url, **kwargs)
+                    response = await req_func(client)
                     if response.is_success:
-                        return response
+                        data = response.json()
+                        content = extract_func(data)
+                        return parse_json_parts(content, texts)
+                    
                     if response.status_code == 429:
                         retry_after = response.headers.get("Retry-After")
                         if retry_after and retry_after.isdigit():
                             await asyncio.sleep(int(retry_after))
                             continue
                     last_error = RuntimeError(f"HTTP {response.status_code}: {response.text[:500]}")
-                except httpx.RequestError as exc:
+                except Exception as exc:
                     last_error = exc
                 if attempt < self.settings.retries:
                     await asyncio.sleep(2 ** (attempt - 1))
-        raise RuntimeError(str(last_error or "request failed"))
+        
+        print(f"Batch translation failed after {self.settings.retries} attempts: {last_error}")
+        return ["[Translation Failed]"] * len(texts)
 
 
 class OpenAICompatibleProvider(TranslationProvider):
@@ -87,32 +94,32 @@ class OpenAICompatibleProvider(TranslationProvider):
         "custom": "gpt-4.1-mini",
     }
 
-    async def translate_batch(self, texts: list[str]) -> list[str]:
+    async def translate_batch(self, texts: list[str], previous_texts: list[str] = None) -> list[str]:
         url = self._chat_completions_url()
         model = self.settings.model or self.DEFAULT_MODELS.get(self.settings.provider, self.DEFAULT_MODELS["openai"])
         headers = {"Content-Type": "application/json"}
         if self.settings.api_key:
             headers["Authorization"] = f"Bearer {self.settings.api_key}"
-        response = await self._request_with_retries(
-            "POST",
-            url,
-            headers=headers,
-            json={
-                "model": model,
-                "temperature": 0,
-                "response_format": {"type": "json_object"} if self.settings.provider in ("openai", "deepseek") else None,
-                "messages": [
-                    {"role": "system", "content": system_prompt(self.settings.target_language, self.settings.glossary)},
-                    {"role": "user", "content": json.dumps(texts, ensure_ascii=False)},
-                ],
-            },
-        )
-        data = response.json()
-        try:
-            content = data["choices"][0]["message"]["content"].strip()
-        except (KeyError, IndexError):
-            return texts
-        return parse_json_parts(content, texts)
+            
+        async def req_func(client):
+            return await client.post(
+                url,
+                headers=headers,
+                json={
+                    "model": model,
+                    "temperature": 0,
+                    "response_format": {"type": "json_object"} if self.settings.provider in ("openai", "deepseek") else None,
+                    "messages": [
+                        {"role": "system", "content": system_prompt(self.settings.target_language, self.settings.glossary, previous_texts)},
+                        {"role": "user", "content": json.dumps(texts, ensure_ascii=False)},
+                    ],
+                },
+            )
+            
+        def extract_func(data):
+            return data["choices"][0]["message"]["content"].strip()
+            
+        return await self._execute_with_retries(req_func, texts, extract_func)
 
     def _chat_completions_url(self) -> str:
         url = (self.settings.api_url or self.DEFAULT_URLS.get(self.settings.provider, "")).strip()
@@ -134,7 +141,7 @@ class OpenAICompatibleProvider(TranslationProvider):
 
 
 class GeminiProvider(TranslationProvider):
-    async def translate_batch(self, texts: list[str]) -> list[str]:
+    async def translate_batch(self, texts: list[str], previous_texts: list[str] = None) -> list[str]:
         model = self.settings.model or "gemini-1.5-pro"
         url = self.settings.api_url or (
             f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
@@ -142,25 +149,25 @@ class GeminiProvider(TranslationProvider):
         params = {}
         if self.settings.api_key and "key=" not in url:
             params["key"] = self.settings.api_key
-        response = await self._request_with_retries(
-            "POST",
-            url,
-            params=params,
-            headers={"Content-Type": "application/json"},
-            json={
-                "system_instruction": {
-                    "parts": [{"text": system_prompt(self.settings.target_language, self.settings.glossary)}]
+            
+        async def req_func(client):
+            return await client.post(
+                url,
+                params=params,
+                headers={"Content-Type": "application/json"},
+                json={
+                    "system_instruction": {
+                        "parts": [{"text": system_prompt(self.settings.target_language, self.settings.glossary, previous_texts)}]
+                    },
+                    "contents": [{"parts": [{"text": json.dumps(texts, ensure_ascii=False)}]}],
+                    "generationConfig": {"temperature": 0},
                 },
-                "contents": [{"parts": [{"text": json.dumps(texts, ensure_ascii=False)}]}],
-                "generationConfig": {"temperature": 0},
-            },
-        )
-        data = response.json()
-        try:
-            content = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-        except (KeyError, IndexError):
-            return texts
-        return parse_json_parts(content, texts)
+            )
+            
+        def extract_func(data):
+            return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+            
+        return await self._execute_with_retries(req_func, texts, extract_func)
 
 
 def parse_json_parts(content: str, texts: list[str]) -> list[str]:
@@ -180,9 +187,9 @@ def parse_json_parts(content: str, texts: list[str]) -> list[str]:
         parts = [content.strip()]
         
     parts = [str(p).strip() for p in parts]
-    if len(parts) < expected:
-        parts.extend(texts[len(parts):])
-    return parts[:expected]
+    if len(parts) != expected:
+        raise ValueError(f"Translation returned {len(parts)} items, expected {expected}")
+    return parts
 
 
 def build_provider(settings: TranslationSettings) -> TranslationProvider:

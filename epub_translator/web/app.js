@@ -6,6 +6,7 @@ const elements = {
   chapterList: document.getElementById('chapter-list'),
   previewContent: document.getElementById('preview-content'),
   btnTranslateAll: document.getElementById('btn-translate-all'),
+  btnTranslateChapter: document.getElementById('btn-translate-chapter'),
   btnStop: document.getElementById('btn-stop'),
   btnExport: document.getElementById('btn-export'),
   btnSaveSettings: document.getElementById('btn-save-settings'),
@@ -47,7 +48,14 @@ function setupEventListeners() {
     if (e.target.files.length) uploadFile(e.target.files[0]);
   });
 
-  elements.btnTranslateAll.addEventListener('click', startTranslation);
+  elements.btnTranslateAll.addEventListener('click', () => startTranslation('all'));
+  elements.btnTranslateChapter.addEventListener('click', () => {
+    if (activeChapterIndex >= 0) {
+      startTranslation('chapter', activeChapterIndex);
+    } else {
+      alert("Please select a chapter first.");
+    }
+  });
   elements.btnStop.addEventListener('click', stopTranslation);
   elements.btnExport.addEventListener('click', exportEpub);
   elements.btnSaveSettings.addEventListener('click', saveSettings);
@@ -174,24 +182,27 @@ function renderPreview(html, chapterPath = '') {
         ${baseHref ? `<base href="${baseHref}">` : ''}
         <style>
           html, body { 
-            background-color: #0f172a !important; 
-            color: #e2e8f0 !important; 
-            font-family: sans-serif; 
-            padding: 1rem; 
+            background-color: #111111 !important; 
+            color: #ededed !important; 
+            font-family: 'Inter', system-ui, sans-serif; 
+            padding: 1rem 2rem; 
             margin: 0;
-            line-height: 1.6;
+            line-height: 1.7;
+            font-size: 1.1rem;
             overflow-x: hidden;
             overflow-wrap: break-word;
           }
           .original-text, [data-epub-translator-original="1"] { 
-            opacity: 0.5; 
+            color: #888888 !important; 
             font-size: 0.95em; 
+            display: block;
+            margin-bottom: 0.5rem;
           }
           .translation-block { 
-            color: #a78bfa !important; 
-            font-weight: bold; 
-            margin-top: 0.5rem;
-            margin-bottom: 1rem;
+            color: #ededed !important; 
+            font-weight: 500; 
+            margin-top: 0.2rem;
+            margin-bottom: 1.5rem;
             display: block;
           }
           img { 
@@ -230,8 +241,8 @@ function renderPreview(html, chapterPath = '') {
 async function loadSettings() {
   const res = await fetch('/api/settings');
   const s = await res.json();
-  ['provider', 'target_language', 'mode', 'model', 'api_url', 'api_key', 'concurrency', 'paragraphs'].forEach(k => {
-    if (document.getElementById(k)) document.getElementById(k).value = s[k];
+  ['provider', 'target_language', 'mode', 'model', 'api_url', 'api_key', 'concurrency', 'paragraphs', 'glossary'].forEach(k => {
+    if (document.getElementById(k)) document.getElementById(k).value = s[k] || '';
   });
 }
 
@@ -273,7 +284,7 @@ document.getElementById('cacheFileInput')?.addEventListener('change', async (e) 
 
 async function saveSettings() {
   const payload = {};
-  ['provider', 'target_language', 'mode', 'model', 'api_url', 'api_key', 'concurrency', 'paragraphs'].forEach(k => {
+  ['provider', 'target_language', 'mode', 'model', 'api_url', 'api_key', 'concurrency', 'paragraphs', 'glossary'].forEach(k => {
     if (document.getElementById(k)) payload[k] = document.getElementById(k).value;
   });
   
@@ -299,16 +310,17 @@ document.getElementById('mode')?.addEventListener('change', (e) => {
 });
 
 // Translation WebSocket
-function startTranslation(mode = 'all') {
+function startTranslation(mode = 'all', chapterIdx = -1) {
   if (translationActive) return;
   translationActive = true;
   
   elements.btnTranslateAll.classList.add('hidden');
+  elements.btnTranslateChapter.classList.add('hidden');
   elements.btnStop.classList.remove('hidden');
   elements.btnExport.classList.add('hidden');
   
   const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  ws = new WebSocket(`${wsProto}//${window.location.host}/ws/translate?mode=${mode}`);
+  ws = new WebSocket(`${wsProto}//${window.location.host}/ws/translate?mode=${mode}&chapter_idx=${chapterIdx}`);
   
   ws.onmessage = (e) => {
     const msg = JSON.parse(e.data);
@@ -318,6 +330,7 @@ function startTranslation(mode = 'all') {
   ws.onclose = () => {
     translationActive = false;
     elements.btnTranslateAll.classList.remove('hidden');
+    elements.btnTranslateChapter.classList.remove('hidden');
     elements.btnStop.classList.add('hidden');
     elements.btnExport.classList.remove('hidden');
   };
@@ -421,6 +434,7 @@ function handleWsMessage(msg, mode) {
     }
     translationActive = false;
     elements.btnTranslateAll.classList.remove('hidden');
+    elements.btnTranslateChapter.classList.remove('hidden');
     elements.btnStop.classList.add('hidden');
     elements.btnStop.innerText = 'Stop Translation';
     elements.btnStop.disabled = false;

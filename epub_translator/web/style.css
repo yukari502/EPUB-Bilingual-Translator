@@ -1,13 +1,13 @@
 :root {
-  --bg-color: #0f172a;
-  --card-bg: rgba(30, 41, 59, 0.6);
-  --card-border: rgba(255, 255, 255, 0.1);
-  --primary: #3b82f6;
-  --primary-hover: #2563eb;
-  --text-main: #f8fafc;
-  --text-muted: #94a3b8;
-  --danger: #ef4444;
-  --success: #10b981;
+  --bg-color: #111111;
+  --card-bg: #1c1c1c;
+  --card-border: #333333;
+  --primary: #007aff;
+  --primary-hover: #005bb5;
+  --text-main: #ededed;
+  --text-muted: #888888;
+  --danger: #ff453a;
+  --success: #32d74b;
 }
 
 * {
@@ -24,9 +24,6 @@ body {
   height: 100vh;
   display: flex;
   overflow: hidden;
-  background-image: 
-    radial-gradient(circle at 15% 50%, rgba(59, 130, 246, 0.15), transparent 25%),
-    radial-gradient(circle at 85% 30%, rgba(16, 185, 129, 0.1), transparent 25%);
 }
 
 /* Layout */
@@ -39,8 +36,6 @@ body {
 .sidebar {
   width: 320px;
   background: var(--card-bg);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
   border-right: 1px solid var(--card-border);
   display: flex;
   flex-direction: column;
@@ -64,16 +59,13 @@ body {
   justify-content: space-between;
   align-items: center;
   border-bottom: 1px solid var(--card-border);
-  background: rgba(15, 23, 42, 0.8);
-  backdrop-filter: blur(8px);
+  background: var(--bg-color);
 }
 
 .header h1 {
   font-size: 1.5rem;
   font-weight: 600;
-  background: linear-gradient(to right, #60a5fa, #a78bfa);
-  -webkit-background-clip: text;
-  color: transparent;
+  color: var(--text-main);
 }
 
 /* Upload Area */
@@ -156,7 +148,7 @@ body {
 
 .progress-bar-fill {
   height: 100%;
-  background: linear-gradient(90deg, #3b82f6, #10b981);
+  background: var(--primary);
   width: 0%;
   transition: width 0.3s ease;
 }
@@ -191,7 +183,7 @@ body {
 }
 
 .chapter-item.active {
-  background: rgba(59, 130, 246, 0.15);
+  background: rgba(0, 122, 255, 0.15);
   color: var(--primary);
   border-left: 3px solid var(--primary);
 }
@@ -233,13 +225,14 @@ body {
 
 .translation-block {
   display: block;
-  color: #a78bfa;
+  color: var(--text-main);
   margin-top: 4px;
   margin-bottom: 16px;
+  font-weight: 500;
 }
 
 .original-text {
-  opacity: 0.5;
+  color: var(--text-muted);
   font-size: 0.95em;
   margin-bottom: 4px;
 }
@@ -259,7 +252,7 @@ body {
 .form-control {
   width: 100%;
   padding: 10px 12px;
-  background: rgba(0, 0, 0, 0.2);
+  background: var(--bg-color);
   border: 1px solid var(--card-border);
   border-radius: 8px;
   color: var(--text-main);
