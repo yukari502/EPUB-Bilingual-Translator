@@ -19,6 +19,13 @@ A lightweight, modern Python tool to translate EPUB files using LLMs (OpenAI, Ge
 1. Double click `start.bat`.
 2. It will automatically download dependencies (if needed) and open the translation web UI in your browser.
 
+## Quick Start (Linux / Mac)
+1. Open a terminal and run the startup script:
+   ```bash
+   bash start.sh
+   ```
+2. It will automatically check for Python, create a virtual environment, install dependencies, and start the web UI.
+
 ## CLI Mode (For Servers & Local Models)
 If you are deploying on a headless server or prefer pure terminal operations (e.g., translating using a locally deployed model like Ollama or vLLM), you can use the built-in Command Line Interface (CLI).
 
