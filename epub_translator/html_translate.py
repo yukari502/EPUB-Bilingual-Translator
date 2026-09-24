@@ -14,7 +14,8 @@ from .settings import TranslationSettings
 ProgressCallback = Callable[[int, int, str], None]
 AsyncProgressCallback = Callable[[int, int, str], Any]
 
-TRANSLATABLE_TAGS = ("p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "blockquote", "figcaption")
+TRANSLATABLE_TAGS = ("p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "blockquote", "figcaption", "div", "span", "td", "th", "dd", "dt")
+BLOCK_TAGS = {"p", "h1", "h2", "h3", "h4", "h5", "h6", "li", "blockquote", "div", "td", "th", "dd", "dt"}
 SKIP_PARENT_TAGS = {"script", "style", "svg", "math", "pre", "code"}
 
 
@@ -150,6 +151,17 @@ def collect_targets(soup: BeautifulSoup) -> list[Tag]:
             continue
         if tag.find_parent(class_="translation-block"):
             continue
+            
+        # If this tag contains other block-level translatable tags, skip it
+        # so we can process the deeper block-level tags instead.
+        has_block_child = False
+        for child in tag.find_all(tuple(BLOCK_TAGS)):
+            if child != tag:
+                has_block_child = True
+                break
+        if has_block_child:
+            continue
+            
         if has_selected_parent(tag, targets):
             continue
         if has_translatable_text(tag) and inner_html(tag).strip():
