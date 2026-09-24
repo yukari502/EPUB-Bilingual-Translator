@@ -29,7 +29,7 @@ LANGUAGE_CODES = {
 }
 
 
-def system_prompt(target_language: str, glossary: str = "", context: list[str] = None) -> str:
+def system_prompt(target_language: str, glossary: str = "") -> str:
     prompt = f"""You are a professional {target_language} native translator.
 
 Translation rules:
@@ -41,8 +41,6 @@ Translation rules:
 6. The user will provide a JSON array of strings. You MUST return a JSON array of translated strings of the exact same length. Return ONLY valid JSON."""
     if glossary.strip():
         prompt += f"\n\nGlossary and custom instructions:\n{glossary.strip()}"
-    if context and any(context):
-        prompt += f"\n\nContext from previous paragraphs (for reference ONLY, do NOT translate these):\n{json.dumps(context, ensure_ascii=False)}"
     return prompt
 
 
@@ -51,7 +49,7 @@ class TranslationProvider(ABC):
         self.settings = settings
 
     @abstractmethod
-    async def translate_batch(self, texts: list[str], previous_texts: list[str] = None) -> list[str]:
+    async def translate_batch(self, texts: list[str]) -> list[str]:
         raise NotImplementedError
 
     async def _execute_with_retries(self, req_func, texts: list[str], extract_func) -> list[str]:
@@ -94,7 +92,7 @@ class OpenAICompatibleProvider(TranslationProvider):
         "custom": "gpt-4.1-mini",
     }
 
-    async def translate_batch(self, texts: list[str], previous_texts: list[str] = None) -> list[str]:
+    async def translate_batch(self, texts: list[str]) -> list[str]:
         url = self._chat_completions_url()
         model = self.settings.model or self.DEFAULT_MODELS.get(self.settings.provider, self.DEFAULT_MODELS["openai"])
         headers = {"Content-Type": "application/json"}
@@ -110,7 +108,7 @@ class OpenAICompatibleProvider(TranslationProvider):
                     "temperature": 0,
                     "response_format": {"type": "json_object"} if self.settings.provider in ("openai", "deepseek") else None,
                     "messages": [
-                        {"role": "system", "content": system_prompt(self.settings.target_language, self.settings.glossary, previous_texts)},
+                        {"role": "system", "content": system_prompt(self.settings.target_language, self.settings.glossary)},
                         {"role": "user", "content": json.dumps(texts, ensure_ascii=False)},
                     ],
                 },
@@ -141,7 +139,7 @@ class OpenAICompatibleProvider(TranslationProvider):
 
 
 class GeminiProvider(TranslationProvider):
-    async def translate_batch(self, texts: list[str], previous_texts: list[str] = None) -> list[str]:
+    async def translate_batch(self, texts: list[str]) -> list[str]:
         model = self.settings.model or "gemini-1.5-pro"
         url = self.settings.api_url or (
             f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
@@ -157,7 +155,7 @@ class GeminiProvider(TranslationProvider):
                 headers={"Content-Type": "application/json"},
                 json={
                     "system_instruction": {
-                        "parts": [{"text": system_prompt(self.settings.target_language, self.settings.glossary, previous_texts)}]
+                        "parts": [{"text": system_prompt(self.settings.target_language, self.settings.glossary)}]
                     },
                     "contents": [{"parts": [{"text": json.dumps(texts, ensure_ascii=False)}]}],
                     "generationConfig": {"temperature": 0},

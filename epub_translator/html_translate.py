@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Callable, Any
 
 from bs4 import BeautifulSoup, Tag
@@ -81,25 +82,20 @@ async def translate_html(
     if settings.provider == "ollama":
         max_workers = 1
 
-    chunk_tasks = []
-    for i, chunk in enumerate(chunks):
-        context = []
-        if i > 0:
-            context = chunks[i-1][-5:]
-        chunk_tasks.append((chunk, context))
+    queue: asyncio.Queue[list[str]] = asyncio.Queue()
+    for chunk in chunks:
+        queue.put_nowait(chunk)
 
-    queue: asyncio.Queue[tuple[list[str], list[str]]] = asyncio.Queue()
-    for task in chunk_tasks:
-        queue.put_nowait(task)
+    last_update_time = 0
 
     async def worker() -> None:
-        nonlocal completed_tags
+        nonlocal completed_tags, last_update_time
         while not queue.empty():
             if cancel_event and cancel_event.is_set():
                 break
-            chunk, context = await queue.get()
+            chunk = await queue.get()
             try:
-                translations = await provider.translate_batch(chunk, previous_texts=context)
+                translations = await provider.translate_batch(chunk)
                 updated_in_chunk = False
                 for text, translated in zip(chunk, translations):
                     if cancel_event and cancel_event.is_set():
@@ -113,7 +109,13 @@ async def translate_html(
                             updated_in_chunk = True
                             
                 if updated_in_chunk and progress:
-                    res = progress(completed_tags, total_tags, "translated", str(soup))
+                    now = time.time()
+                    if now - last_update_time > 1.0 or completed_tags == total_tags:
+                        current_html = str(soup)
+                        last_update_time = now
+                    else:
+                        current_html = ""
+                    res = progress(completed_tags, total_tags, "translated", current_html)
                     if asyncio.iscoroutine(res):
                         await res
             except Exception as e:
