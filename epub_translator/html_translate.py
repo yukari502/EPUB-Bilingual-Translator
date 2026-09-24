@@ -148,6 +148,7 @@ def remove_scripts(html: str) -> str:
 
 def collect_targets(soup: BeautifulSoup) -> list[Tag]:
     targets: list[Tag] = []
+    target_ids = set()
     for tag in soup.find_all(TRANSLATABLE_TAGS):
         classes = set(tag.get("class", []))
         if "translated" in classes or "translation-block" in classes:
@@ -169,15 +170,16 @@ def collect_targets(soup: BeautifulSoup) -> list[Tag]:
         if has_block_child:
             continue
             
-        if has_selected_parent(tag, targets):
+        if has_selected_parent(tag, target_ids):
             continue
         if has_translatable_text(tag) and inner_html(tag).strip():
             targets.append(tag)
+            target_ids.add(id(tag))
     return targets
 
 
-def has_selected_parent(tag: Tag, targets: list[Tag]) -> bool:
-    return any(parent in targets for parent in tag.parents if isinstance(parent, Tag))
+def has_selected_parent(tag: Tag, target_ids: set[int]) -> bool:
+    return any(id(parent) in target_ids for parent in tag.parents if isinstance(parent, Tag))
 
 
 def has_translatable_text(tag: Tag) -> bool:
