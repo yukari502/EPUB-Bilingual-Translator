@@ -12,6 +12,7 @@ from .settings import TranslationSettings
 
 import json
 import logging
+import re
 
 logger = logging.getLogger("translator")
 
@@ -56,15 +57,15 @@ class TranslationProvider(ABC):
         raise NotImplementedError
 
     async def _execute_with_retries(self, req_func, texts: list[str], extract_func) -> list[str]:
-        last_error: Exception | None = None
-        async with httpx.AsyncClient(timeout=self.settings.timeout, verify=False) as client:
+        async def _translate_sub_batch(client, sub_texts: list[str]) -> list[str]:
+            last_error: Exception | None = None
             for attempt in range(1, self.settings.retries + 1):
                 try:
-                    response = await req_func(client)
+                    response = await req_func(client, sub_texts)
                     if response.is_success:
                         data = response.json()
                         content = extract_func(data)
-                        return parse_json_parts(content, texts)
+                        return parse_json_parts(content, sub_texts)
                     
                     if response.status_code == 429:
                         retry_after = response.headers.get("Retry-After")
@@ -72,15 +73,54 @@ class TranslationProvider(ABC):
                             logger.warning(f"Rate limited. Waiting {retry_after} seconds.")
                             await asyncio.sleep(int(retry_after))
                             continue
+                            
                     last_error = RuntimeError(f"HTTP {response.status_code}: {response.text[:500]}")
                     logger.error(f"Provider HTTP Error: {last_error}")
                 except Exception as exc:
                     last_error = exc
+                    
                 if attempt < self.settings.retries:
                     await asyncio.sleep(2 ** (attempt - 1))
-        
-        logger.error(f"Batch translation failed after {self.settings.retries} attempts: {last_error}")
-        return ["[Translation Failed]"] * len(texts)
+            
+            # Batch failed after all retries. Fallback: break down the batch!
+            if len(sub_texts) > 1:
+                logger.warning(f"Batch translation failed, breaking down {len(sub_texts)} items into individual requests...")
+                results = []
+                for t in sub_texts:
+                    res = await _translate_sub_batch(client, [t])
+                    results.extend(res)
+                return results
+                
+            # If it is already a single item, break it down by sentences
+            if len(sub_texts) == 1:
+                original_text = sub_texts[0]
+                if len(original_text) < 10 or "[Translation Failed]" in original_text:
+                    logger.error(f"Translation failed for item after {self.settings.retries} attempts: {last_error}")
+                    return ["[Translation Failed]"]
+                
+                logger.warning(f"Single item failed, trying sentence-level breakdown...")
+                parts = re.split(r'([。！？.!?\n]+)', original_text)
+                sentences = []
+                for i in range(0, len(parts)-1, 2):
+                    sentences.append(parts[i] + parts[i+1])
+                if len(parts) % 2 != 0 and parts[-1]:
+                    sentences.append(parts[-1])
+                
+                if len(sentences) > 1:
+                    translated_sentences = []
+                    for sent in sentences:
+                        if not sent.strip():
+                            translated_sentences.append(sent)
+                            continue
+                        res = await _translate_sub_batch(client, [sent])
+                        translated_sentences.extend(res)
+                    return ["".join(translated_sentences)]
+                    
+            logger.error(f"Translation failed for item after {self.settings.retries} attempts: {last_error}")
+            return ["[Translation Failed]"]
+            
+        async with httpx.AsyncClient(timeout=self.settings.timeout, verify=False) as client:
+            return await _translate_sub_batch(client, texts)
 
 
 class OpenAICompatibleProvider(TranslationProvider):
@@ -104,7 +144,7 @@ class OpenAICompatibleProvider(TranslationProvider):
         if self.settings.api_key:
             headers["Authorization"] = f"Bearer {self.settings.api_key}"
             
-        async def req_func(client):
+        async def req_func(client, current_texts: list[str]):
             return await client.post(
                 url,
                 headers=headers,
@@ -114,7 +154,7 @@ class OpenAICompatibleProvider(TranslationProvider):
                     "response_format": {"type": "json_object"} if self.settings.provider in ("openai", "deepseek") else None,
                     "messages": [
                         {"role": "system", "content": system_prompt(self.settings.target_language, self.settings.glossary)},
-                        {"role": "user", "content": json.dumps(texts, ensure_ascii=False)},
+                        {"role": "user", "content": json.dumps(current_texts, ensure_ascii=False)},
                     ],
                 },
             )
@@ -153,7 +193,7 @@ class GeminiProvider(TranslationProvider):
         if self.settings.api_key and "key=" not in url:
             params["key"] = self.settings.api_key
             
-        async def req_func(client):
+        async def req_func(client, current_texts: list[str]):
             return await client.post(
                 url,
                 params=params,
@@ -162,7 +202,7 @@ class GeminiProvider(TranslationProvider):
                     "system_instruction": {
                         "parts": [{"text": system_prompt(self.settings.target_language, self.settings.glossary)}]
                     },
-                    "contents": [{"parts": [{"text": json.dumps(texts, ensure_ascii=False)}]}],
+                    "contents": [{"parts": [{"text": json.dumps(current_texts, ensure_ascii=False)}]}],
                     "generationConfig": {"temperature": 0},
                 },
             )
